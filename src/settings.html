@@ -181,6 +181,18 @@
        assets and restarts the server.</p>
   </div>
 
+  <h2>Client version</h2>
+  <div class="panel">
+    <label><span>Packet version</span><select id="packetver"></select></label>
+    <p class="note" id="packetver-status" hidden style="margin:8px 0 0; color: var(--text)"></p>
+    <p class="note">Which client the server talks to, named by the date of the client it
+       matches. The server and the game window always change together &mdash; a client and
+       server a version apart cannot talk at all. Your characters are kept.</p>
+    <p class="note">Leave this on the default unless something is wrong. A newer version
+       uses newer windows and needs client files at least that new. <b>Experimental</b> means it builds and starts, but nobody
+       has played it through. Changing this rebuilds the assets and restarts the server.</p>
+  </div>
+
   <h2>Startup</h2>
   <div class="panel">
     <label>
@@ -550,6 +562,19 @@
        between fast and instant. <b>Stat cap</b> is 99 by default and goes to
        32767; third, baby and summoner classes are lifted with it, and left at
        their own defaults while this is untouched.</p>
+    <label><span>View distance</span><select id="view_distance">
+      <option value="official">Official &mdash; 14 cells, walk 17</option>
+      <option value="wide">Wide (21:9) &mdash; 20 cells, walk 20</option>
+      <option value="ultrawide">Ultrawide (32:9) &mdash; 28 cells, walk 24</option>
+    </select></label>
+    <p class="note" id="view-distance-detail" style="margin:4px 0 0; color: var(--text)"></p>
+    <p class="note"><b>View distance</b> is how far away the server shows you monsters,
+       players and NPCs, for screens wider than 16:9. A wider window already draws more
+       of the map; this fills it. It also raises how far a click can walk you, and how far
+       monsters see and chase, so that nothing you can see is out of reach and nothing that
+       can see you ignores you. <b>Official</b> is the stock game. Wider views mean more
+       monsters awake at once, and it applies to your own server only &mdash; a friend's
+       server uses theirs.</p>
     <label>
       <span>Monsters drop Zeny</span>
       <input type="checkbox" id="zeny_from_mobs" style="accent-color: var(--accent); flex: none" />
@@ -831,6 +856,54 @@ $('game_text').onchange = async () => {
     log(String(e));
   } finally {
     $('game_text').disabled = false;
+    refresh();
+  }
+};
+
+// The packet version the server and client were last built for. null is the
+// app's default, which is saved as null rather than as its number: see
+// electron/packetvers.js. Same one-source-of-truth reasoning as gameText.
+let packetver = null;
+const packetverValue = v => v || '';
+
+async function loadPacketvers() {
+  const list = await invoke('packetvers').catch(() => []);
+  const dated = v => `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)}`;
+  $('packetver').replaceChildren(...list.map(p => {
+    const option = document.createElement('option');
+    // The default is the empty value, not its own number, so choosing it
+    // stores null and follows the app's default from then on.
+    option.value = p.isDefault ? '' : p.version;
+    option.textContent = `${dated(p.version)} (${p.version})` + (p.tag ? ` \u2014 ${p.tag}` : '');
+    return option;
+  }));
+}
+
+$('packetver').onchange = async () => {
+  const chosen = $('packetver').value || null;
+  if (chosen === packetver) return;
+  const label = $('packetver').selectedOptions[0]?.textContent || chosen;
+  const status = $('packetver-status');
+  $('packetver').disabled = true;
+  status.hidden = false;
+  status.innerHTML = '<span class="spinner"></span>Switching the server and client\u2026';
+  try {
+    const s = await invoke('get_settings');
+    await invoke('save_settings', { settings: { ...s, packetver: chosen } });
+    packetver = chosen;
+    status.textContent = `Now on ${label}. Reload the game window and log in again.`;
+    log('packet version: ' + (chosen || 'default'));
+  } catch (e) {
+    // The setting may be saved even though the restart failed -- the
+    // supervisor refuses a version the image was not built with. Show what is
+    // saved rather than an invented rollback.
+    const saved = await invoke('get_settings').catch(() => ({ packetver }));
+    packetver = saved.packetver || null;
+    $('packetver').value = packetverValue(packetver);
+    status.textContent = `Could not switch: ${String(e)}`;
+    log(String(e));
+  } finally {
+    $('packetver').disabled = false;
     refresh();
   }
 };
@@ -1655,11 +1728,25 @@ $('delete-delay-save').onclick = async () => {
   }
 };
 
+// What each View distance preset sets, spelled out under the picker. The
+// numbers are electron/view-distance.js's; tests/view-distance.test.cjs checks
+// this text against it so the two cannot drift.
+const VIEW_DISTANCE_DETAIL = {
+  official: 'You see 14 cells around you and a click walks up to 17. Monsters see and chase at their normal range.',
+  wide: 'You see 20 cells around you and a click walks up to 20. Monsters see and chase 1.4x as far.',
+  ultrawide: 'You see 28 cells around you and a click walks up to 24. Monsters see and chase 2x as far. Skill effects more than 20 cells away are not drawn.',
+};
+const showViewDistance = () => {
+  $('view-distance-detail').textContent = VIEW_DISTANCE_DETAIL[$('view_distance').value] || '';
+};
+$('view_distance').addEventListener('change', showViewDistance);
+
 $('save').onclick = async () => {
   const settings = await invoke('get_settings');
   for (const k of RATES) settings[k] = rateOf(k);
   settings.max_aspd = Number($('max_aspd').value) || 190;
   settings.max_parameter = Number($('max_parameter').value) || 99;
+  settings.view_distance = $('view_distance').value;
   settings.free_kafra_warp = $('free_kafra_warp').checked;
   settings.open_registration = $('open-registration').value === 'open';
   settings.instant_character_deletion = $('delete-delay').value === 'instant';
@@ -1706,12 +1793,19 @@ invoke('get_settings').then(s => {
   for (const k of RATES) showRate(k, s[k]);
   $('max_aspd').value = s.max_aspd ?? 190;
   $('max_parameter').value = s.max_parameter ?? 99;
+  $('view_distance').value = s.view_distance || 'official';
+  if (!$('view_distance').value) $('view_distance').value = 'official';
+  showViewDistance();
   $('free_kafra_warp').checked = !!s.free_kafra_warp;
   paintRegistration(s);
   $('delete-delay').value = s.instant_character_deletion ? 'instant' : 'delayed';
   setEra(!!s.prerenewal);
   gameText = s.game_text || 'english';
   $('game_text').value = gameText;
+  loadPacketvers().then(() => {
+    packetver = s.packetver ? String(s.packetver) : null;
+    $('packetver').value = packetverValue(packetver);
+  });
   $('zeny_from_mobs').checked = !!s.zeny_from_mobs;
   $('unlimited_arrows').checked = !!s.unlimited_arrows;
   $('open_settings_first').checked = !!s.open_settings_first;

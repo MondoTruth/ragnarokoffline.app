@@ -895,6 +895,10 @@ const SETTINGS_DEFAULTS = {
 	// for why raising one writes several keys.
 	max_aspd: 190,
 	max_parameter: 99,
+	// How much of the map the server sends, with the walk limit and monster
+	// sight that have to move alongside it -- see electron/view-distance.js.
+	// 'official' is rAthena's stock numbers.
+	view_distance: 'official',
 	free_kafra_warp: true,
 	// Discord request (Joel): ammo of every kind never runs out. Maps to
 	// rAthena's arrow_decrement (conf/battle/battle.conf): stock is 1 =
@@ -939,6 +943,10 @@ const SETTINGS_DEFAULTS = {
 	// better served reading that. See GameText in stack/src/assets.rs for why
 	// the text and the codepage are one setting rather than two.
 	game_text: 'english',
+	// Which client version the server is built for and the client speaks --
+	// see electron/packetvers.js. null follows the app's default rather than
+	// pinning today's, so a later app that moves the default moves this too.
+	packetver: null,
 };
 
 function getSettings() {
@@ -1053,6 +1061,7 @@ function toBattleConf(s) {
 		// touched nothing.
 		aspdConf(s.max_aspd) +
 		parameterConf(s.max_parameter) +
+		require('./view-distance').viewDistanceConf(s) +
 		// Population keys: one module so the Settings window and the server
 		// share their bounds -- see electron/population-conf.js.
 		require('./population-conf').lines(s)
@@ -2247,6 +2256,7 @@ const handlers = {
 	// this data.grf. Kept out of get_client_paths, whose result the setup screen
 	// hands back to set_client_paths to be saved.
 	client_folders: ({ data_grf }) => require('./client-folders').clientFolders(data_grf),
+	packetvers: () => require('./packetvers').list(projectRoot()),
 	set_client_paths: async ({ paths }) => {
 		const next = { ...getClientPaths(), ...paths };
 		if (next.mode === 'join') {
