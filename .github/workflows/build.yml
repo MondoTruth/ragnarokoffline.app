@@ -292,7 +292,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          gh release download images --repo ${{ github.repository }} \
+          gh release download images --repo Flux159/ragnarokoffline.app \
              --pattern "images-${{ matrix.arch }}.tar.gz" --dir /tmp || {
             echo "No server images for ${{ matrix.arch }}." >&2
             echo "Run the images workflow, which publishes them to the 'images' tag." >&2
@@ -308,7 +308,7 @@ jobs:
           # takes it from .ragnarokmac/sql, which locally is written by bootstrap
           # and here comes down with the images it was extracted from.
           mkdir -p .ragnarokmac/sql
-          gh release download images --repo ${{ github.repository }} \
+          gh release download images --repo Flux159/ragnarokoffline.app \
              --pattern 'rathena-sql.tar.gz' --dir /tmp
           tar xzf /tmp/rathena-sql.tar.gz -C .ragnarokmac/sql
           ls .ragnarokmac/sql
